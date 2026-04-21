@@ -76,30 +76,42 @@ export default function MicPopup({ show, onClose, onResult }) {
     const recog = new SR()
     recog.lang            = 'vi-VN'
     recog.interimResults  = true
-    recog.continuous      = true
+    recog.continuous      = false   // false để nhận isFinal chắc chắn hơn
     recog.maxAlternatives = 5
     recogRef.current = recog
 
-    recog.onsoundstart = () => setState(s => s === 'listening' ? 'listening' : s)
+    recog.onsoundstart  = () => setState(s => s === 'listening' ? 'listening' : s)
     recog.onspeechstart = () => setState('speech')
     recog.onspeechend   = () => setState('processing')
 
     recog.onresult = (e) => {
-      let interim = '', final = ''
+      let interim = ''
+      let bestFinal = ''
+
       for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final   += e.results[i][0].transcript
-        else                       interim += e.results[i][0].transcript
+        const result = e.results[i]
+        if (result.isFinal) {
+          // Ưu tiên alternative có chứa số (để nhận mã số tốt hơn)
+          let picked = result[0].transcript
+          for (let j = 0; j < result.length; j++) {
+            if (/\d/.test(result[j].transcript)) { picked = result[j].transcript; break }
+          }
+          bestFinal += picked
+        } else {
+          interim += result[0].transcript
+        }
       }
-      if (final) {
-        finalTextRef.current = final
-        setTranscript(final)
+
+      if (bestFinal) {
+        finalTextRef.current = bestFinal
+        setTranscript(bestFinal)
         setIsFinal(true)
         setState('done')
         stopAll(true)
         closeTimerRef.current = setTimeout(() => {
-          onResult(final)
+          onResult(bestFinal)
           onClose()
-        }, 1500)
+        }, 1200)
       } else if (interim) {
         setTranscript(interim)
         setIsFinal(false)
@@ -107,7 +119,14 @@ export default function MicPopup({ show, onClose, onResult }) {
     }
 
     recog.onerror = (e) => {
-      if (e.error === 'aborted' || e.error === 'no-speech') return
+      if (e.error === 'aborted') return
+      if (e.error === 'no-speech') {
+        // Tự khởi động lại nếu chưa có kết quả
+        if (!finalTextRef.current && recogRef.current) {
+          try { recogRef.current.start() } catch (_) {}
+        }
+        return
+      }
       const msgs = {
         'not-allowed':   '❌ Cần cấp quyền micro cho trình duyệt',
         'network':       '❌ Lỗi mạng – cần internet để nhận diện',
@@ -120,7 +139,12 @@ export default function MicPopup({ show, onClose, onResult }) {
     }
 
     recog.onend = () => {
-      if (recogRef.current) recogRef.current = null
+      // Nếu chưa có kết quả và popup vẫn mở → restart
+      if (!finalTextRef.current && recogRef.current) {
+        try { recogRef.current.start() } catch (_) {}
+      } else {
+        recogRef.current = null
+      }
     }
 
     recog.start()
