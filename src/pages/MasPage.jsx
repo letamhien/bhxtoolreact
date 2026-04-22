@@ -147,7 +147,7 @@ export default function MasPage() {
             ))}
           </>
         )}
-        <div className="footer">Bách Hoá Xanh · Tra Cứu Mã Số</div>
+        <div className="footer">Bách Hoá Xanh · Tra Cứu Code</div>
       </div>
 
       {/* Toast */}
