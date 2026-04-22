@@ -452,7 +452,19 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
   opacity: 0; transition: opacity 0.3s;
 }
 .mic-bars.active { opacity: 1; }
-.mic-bar { width: 5px; border-radius: 3px; background: var(--green); min-height: 4px; transition: height 0.08s ease; }
+.mic-bar {
+  width: 5px; border-radius: 3px; background: var(--green);
+  min-height: 4px; height: 4px;
+}
+/* CSS animation cho bars khi đang nghe – không cần getUserMedia */
+.mic-bars.active .mic-bar-css {
+  animation: bar-bounce 0.7s ease-in-out infinite alternate;
+}
+@keyframes bar-bounce {
+  0%   { height: 4px; }
+  100% { height: 26px; }
+}
+/* Mỗi bar lệch pha khác nhau (đã set qua animationDelay inline) */
 .mic-popup-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 4px; text-align: center; }
 .mic-popup-hint  { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; text-align: center; line-height: 1.5; }
 .mic-transcript {
