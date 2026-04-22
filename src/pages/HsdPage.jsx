@@ -1,4 +1,6 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { createWorker }     from 'tesseract.js'
+import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library'
 
 const TYPES  = ['days', 'months', 'years']
 const LABELS = { days:'Ngày', months:'Tháng', years:'Năm' }
@@ -29,6 +31,48 @@ function addTime(date, n, type) {
 }
 function daysDiff(a, b) { return Math.round((b - a) / 86400000) }
 
+/** Trích xuất ngày từ text OCR */
+function extractDate(text) {
+  const patterns = [
+    /\b(\d{4})[\/\-. ]+(\d{1,2})[\/\-. ]+(\d{1,2})\b/g,
+    /\b(\d{1,2})[\/\-. ]+(\d{1,2})[\/\-. ]+(\d{2,4})\b/g,
+  ]
+  for (const re of patterns) {
+    let m; while ((m = re.exec(text)) !== null) {
+      const [, a, b, c] = m
+      let y=+a,mo=+b,d=+c
+      if (a.length <= 2) { y = c.length===2 ? 2000+(+c) : +c; mo=+b; d=+a }
+      if (mo>=1&&mo<=12&&d>=1&&d<=31&&y>=1900&&y<=2100)
+        return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+    }
+  }
+  return null
+}
+
+/** Trích xuất ngày từ barcode text */
+function extractDateFromBarcode(text) {
+  // Format GS1: (11)YYMMDD hoặc (17)YYMMDD  hoặc số thuần 6-8 chữ số
+  const gs1 = text.match(/\(1[17]\)(\d{6})/)
+  if (gs1) {
+    const s = gs1[1]
+    const y = 2000 + parseInt(s.slice(0,2))
+    const mo = parseInt(s.slice(2,4))
+    const d  = parseInt(s.slice(4,6))
+    if (mo>=1&&mo<=12&&d>=1&&d<=31)
+      return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+  }
+  // YYYYMMDD thuần
+  const pure8 = text.match(/\b(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b/)
+  if (pure8) {
+    return `${pure8[1]}-${pure8[2]}-${pure8[3]}`
+  }
+  // Thử trích xuất ngày dạng thông thường
+  return extractDate(text)
+}
+
+// ── Chế độ quét ──
+const SCAN_MODE = { BARCODE: 'barcode', OCR: 'ocr' }
+
 export default function HsdPage() {
   const [nsx,       setNsx]      = useState(todayStr)
   const [duration,  setDuration] = useState('')
@@ -38,6 +82,7 @@ export default function HsdPage() {
   const [errDur,    setErrDur]   = useState(false)
   const [ocrStatus, setOcrStatus]= useState(null)
   const [showScan,  setShowScan] = useState(false)
+  const [scanMode,  setScanMode] = useState(SCAN_MODE.BARCODE)
   const [history,   setHistory]  = useState(() => {
     try { return JSON.parse(localStorage.getItem('hsd_history') || '[]') } catch { return [] }
   })
@@ -47,6 +92,8 @@ export default function HsdPage() {
   const resultRef = useRef()
   const videoRef  = useRef()
   const streamRef = useRef(null)
+  const zxingRef  = useRef(null)  // BrowserMultiFormatReader instance
+  const scanningRef = useRef(false)
 
   const shake = (el) => {
     if (!el) return
@@ -96,36 +143,115 @@ export default function HsdPage() {
     setTimeout(() => resultRef.current?.scrollIntoView({ behavior:'smooth', block:'nearest' }), 50)
   }, [nsx, duration, type])
 
-  // ── Camera ──
-  async function startCamera() {
+  // ── Dọn dẹp camera + ZXing ──
+  function stopCamera() {
+    scanningRef.current = false
+    if (zxingRef.current) {
+      try { zxingRef.current.reset() } catch (_) {}
+      zxingRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+    }
+    setShowScan(false)
+  }
+
+  // Cleanup khi unmount
+  useEffect(() => () => stopCamera(), [])
+
+  // ── Mở camera ──
+  async function startCamera(mode) {
+    setScanMode(mode)
     setShowScan(true)
+    setOcrStatus({ text:'⏳ Đang mở camera...', type:'loading' })
     try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } })
-      if (videoRef.current) videoRef.current.srcObject = streamRef.current
+      const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play().catch(() => {})
+      }
+      if (mode === SCAN_MODE.BARCODE) {
+        startBarcodeScanner()
+      } else {
+        setOcrStatus({ text:'📷 Chụp để quét chữ', type:'loading' })
+      }
     } catch {
       alert('Không thể mở camera. Vui lòng cấp quyền.')
       stopCamera()
+      setOcrStatus(null)
     }
   }
-  function stopCamera() {
-    streamRef.current?.getTracks().forEach(t => t.stop())
-    streamRef.current = null
-    setShowScan(false)
+
+  // ── ZXing barcode real-time ──
+  function startBarcodeScanner() {
+    const reader = new BrowserMultiFormatReader()
+    zxingRef.current = reader
+    scanningRef.current = true
+    setOcrStatus({ text:'📡 Đang quét barcode... Hướng vào mã vạch', type:'loading' })
+
+    const hints = new Map()
+    // Không giới hạn format để quét cả EAN, QR, DataMatrix, ITF, etc.
+
+    function scanFrame() {
+      if (!scanningRef.current || !videoRef.current) return
+      try {
+        const video = videoRef.current
+        if (video.readyState < 2) { requestAnimationFrame(scanFrame); return }
+
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth || 640
+        canvas.height = video.videoHeight || 480
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(video, 0, 0)
+
+        reader.decodeFromCanvas(canvas).then(result => {
+          if (!scanningRef.current) return
+          const text = result.getText()
+          const dateStr = extractDateFromBarcode(text)
+          stopCamera()
+          if (dateStr) {
+            setNsx(dateStr)
+            setOcrStatus({ text:`✅ Barcode: ${dateStr}`, type:'ok' })
+          } else {
+            setOcrStatus({ text:`⚠️ Barcode: "${text}" – Không tìm thấy ngày`, type:'err' })
+          }
+          setTimeout(() => setOcrStatus(null), 5000)
+        }).catch(e => {
+          if (e instanceof NotFoundException) {
+            // Chưa tìm thấy, thử frame tiếp theo
+            if (scanningRef.current) requestAnimationFrame(scanFrame)
+          } else {
+            if (scanningRef.current) requestAnimationFrame(scanFrame)
+          }
+        })
+      } catch (_) {
+        if (scanningRef.current) requestAnimationFrame(scanFrame)
+      }
+    }
+    requestAnimationFrame(scanFrame)
   }
-  async function captureAndScan() {
+
+  // ── OCR chụp ảnh dùng tesseract.js npm ──
+  async function captureAndOcr() {
     const video = videoRef.current
     if (!video) return
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth; canvas.height = video.videoHeight
     canvas.getContext('2d').drawImage(video, 0, 0)
     stopCamera()
-    setOcrStatus({ text:'⏳ AI đang phân tích...', type:'loading' })
+    setOcrStatus({ text:'⏳ AI đang phân tích chữ...', type:'loading' })
     try {
-      const res = await window.Tesseract.recognize(canvas.toDataURL('image/png'), 'eng')
-      const dateStr = extractDate(res.data.text)
+      const worker = await createWorker('eng', 1, {
+        logger: () => {},
+      })
+      const { data: { text } } = await worker.recognize(canvas.toDataURL('image/png'))
+      await worker.terminate()
+      const dateStr = extractDate(text)
       if (dateStr) {
         setNsx(dateStr)
-        setOcrStatus({ text:`✅ Quét: ${dateStr}`, type:'ok' })
+        setOcrStatus({ text:`✅ Quét OCR: ${dateStr}`, type:'ok' })
         setTimeout(() => setOcrStatus(null), 4000)
       } else {
         setOcrStatus({ text:'❌ Không nhận ra ngày. Thử lại.', type:'err' })
@@ -134,44 +260,39 @@ export default function HsdPage() {
       setOcrStatus({ text:'❌ Lỗi xử lý ảnh.', type:'err' })
     }
   }
-  function extractDate(text) {
-    const patterns = [
-      /\b(\d{4})[\/\-. ]+(\d{1,2})[\/\-. ]+(\d{1,2})\b/g,
-      /\b(\d{1,2})[\/\-. ]+(\d{1,2})[\/\-. ]+(\d{2,4})\b/g,
-    ]
-    for (const re of patterns) {
-      let m; while ((m = re.exec(text)) !== null) {
-        const [, a, b, c] = m
-        let y=+a,mo=+b,d=+c
-        if (a.length <= 2) { y = c.length===2 ? 2000+(+c) : +c; mo=+b; d=+a }
-        if (mo>=1&&mo<=12&&d>=1&&d<=31&&y>=1900&&y<=2100)
-          return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`
-      }
-    }
-    return null
-  }
 
   return (
     <div className="scroll-body">
 
-      {/* Camera Scanner */}
+      {/* Camera Scanner Modal */}
       {showScan && (
         <div className="scanner-modal">
           <div className="scanner-header">
-            <span style={{color:'#fff',fontSize:14,fontWeight:600}}>📷 Quét NSX / HSD</span>
+            <span style={{color:'#fff',fontSize:14,fontWeight:600}}>
+              {scanMode === SCAN_MODE.BARCODE ? '📡 Quét Barcode / QR' : '📷 Quét chữ NSX/HSD'}
+            </span>
             <button className="close-scanner" onClick={stopCamera}>✕ Đóng</button>
           </div>
           <div className="video-container">
             <video ref={videoRef} id="camera-stream" autoPlay playsInline muted />
-            <div className="scan-box" />
+            <div className={`scan-box${scanMode === SCAN_MODE.BARCODE ? ' barcode-box' : ''}`} />
+            {scanMode === SCAN_MODE.BARCODE && (
+              <div className="scan-laser" />
+            )}
           </div>
           <div className="scanner-footer">
-            <button className="capture-btn" onClick={captureAndScan}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="4" fill="white"/>
-                <path d="M9 2L7.17 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9z" fill="white" opacity=".6"/>
-              </svg>
-            </button>
+            {scanMode === SCAN_MODE.BARCODE ? (
+              <div style={{ color:'rgba(255,255,255,0.8)', fontSize:13, textAlign:'center', padding:'0 16px' }}>
+                🔍 Tự động nhận diện – hướng camera vào mã vạch
+              </div>
+            ) : (
+              <button className="capture-btn" onClick={captureAndOcr}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="4" fill="white"/>
+                  <path d="M9 2L7.17 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9z" fill="white" opacity=".6"/>
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -183,7 +304,26 @@ export default function HsdPage() {
           <input ref={nsxRef} type="date" value={nsx}
             onChange={e => { setNsx(e.target.value); setErrNsx(false) }}
             style={{ flex:1 }} />
-          <button onClick={startCamera} style={{
+
+          {/* Nút quét Barcode */}
+          <button onClick={() => startCamera(SCAN_MODE.BARCODE)} title="Quét barcode / QR" style={{
+            width:50, height:50, border:'1.5px solid var(--border)',
+            borderRadius:'var(--radius-sm)', background:'var(--bg)',
+            color:'var(--text)', display:'flex', alignItems:'center', justifyContent:'center',
+            cursor:'pointer', flexShrink:0,
+          }}>
+            {/* Barcode icon */}
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 5h2M3 12h2M3 19h2"/>
+              <rect x="6" y="3" width="2" height="18" rx="0.5"/>
+              <rect x="10" y="3" width="1" height="18" rx="0.5"/>
+              <rect x="13" y="3" width="3" height="18" rx="0.5"/>
+              <rect x="18" y="3" width="2" height="18" rx="0.5"/>
+            </svg>
+          </button>
+
+          {/* Nút quét OCR (chụp chữ) */}
+          <button onClick={() => startCamera(SCAN_MODE.OCR)} title="Chụp ảnh đọc ngày" style={{
             width:50, height:50, border:'1.5px solid var(--border)',
             borderRadius:'var(--radius-sm)', background:'var(--bg)',
             color:'var(--text)', display:'flex', alignItems:'center', justifyContent:'center',
@@ -202,6 +342,12 @@ export default function HsdPage() {
           </div>
         )}
         {errNsx && <div className="err-msg">⚠ Vui lòng chọn ngày sản xuất</div>}
+
+        {/* Hướng dẫn 2 nút */}
+        <div style={{ marginTop:6, fontSize:11, color:'var(--text-muted)', display:'flex', gap:12 }}>
+          <span>📡 Barcode tự động</span>
+          <span>📷 OCR chụp chữ</span>
+        </div>
       </div>
 
       {/* Loại & Số lượng */}
