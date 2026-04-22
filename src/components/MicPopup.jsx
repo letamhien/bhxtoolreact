@@ -20,19 +20,13 @@ export default function MicPopup({ show, onClose, onResult }) {
 
   // ── Dừng tất cả ──
   const stopAll = useCallback((skipRecog = false) => {
-    activeRef.current  = false
+    activeRef.current   = false
     abortingRef.current = true
     clearTimeout(closeTimerRef.current)
-
+  
     if (!skipRecog && recogRef.current) {
       try { recogRef.current.abort() } catch (_) {}
       recogRef.current = null
-    }
-
-    // Giải phóng mic stream (quan trọng cho Bluetooth)
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop())
-      streamRef.current = null
     }
   }, [])
 
@@ -69,16 +63,13 @@ export default function MicPopup({ show, onClose, onResult }) {
   // ── Xin quyền mic trước (bắt buộc cho Bluetooth HFP) ──
   async function requestMicPermission() {
     try {
-      // Chỉ định audio constraints giúp browser chọn đúng source
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl:  true,
-          // Không chỉ định deviceId → để browser/OS tự chọn mic phù hợp
-        }
-      })
-      streamRef.current = stream
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      
+      // ✅ QUAN TRỌNG: Dừng stream NGAY SAU KHI xin quyền xong
+      // Không giữ stream → SpeechRecognition mới dùng được mic
+      stream.getTracks().forEach(t => t.stop())
+      streamRef.current = null  // không giữ nữa
+  
       return true
     } catch (err) {
       const msgs = {
