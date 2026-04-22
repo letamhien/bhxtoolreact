@@ -1,64 +1,51 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
 const BARS = [0, 1, 2, 3, 4, 5, 6]
-const INDICES = [2, 4, 6, 8, 10, 13, 16]
 
-/**
- * MicPopup – nhận diện giọng nói tiếng Việt
- * Props:
- *   show      – boolean hiện/ẩn popup
- *   onClose   – callback đóng
- *   onResult  – callback khi có kết quả
- *   speakerMode (optional bool) – kế thừa giá trị từ ngoài nếu cần
- */
 export default function MicPopup({ show, onClose, onResult }) {
   const [state, setState] = useState('idle') // idle|connecting|listening|speech|processing|done|error
   const [transcript, setTranscript] = useState('')
   const [isFinal, setIsFinal] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
-  const [barHeights, setBarHeights] = useState([8, 14, 20, 14, 8, 20, 10])
-  // Loa ngoài: tắt echo cancellation để thu được âm thanh phát từ loa
   const [speakerMode, setSpeakerMode] = useState(() => {
     try { return localStorage.getItem('mic_speaker_mode') === '1' } catch { return false }
   })
 
   const recogRef      = useRef(null)
-  const streamRef     = useRef(null)
-  const audioCtxRef   = useRef(null)
-  const analyserRef   = useRef(null)
-  const rafRef        = useRef(null)
   const closeTimerRef = useRef(null)
   const finalTextRef  = useRef('')
+  const activeRef     = useRef(false) // popup còn mở không
 
-  // ── Cleanup total ──
+  // ── Dọn dẹp ──
   const stopAll = useCallback((skipRecog = false) => {
+    activeRef.current = false
     clearTimeout(closeTimerRef.current)
-    if (rafRef.current)    { cancelAnimationFrame(rafRef.current); rafRef.current = null }
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
-    if (audioCtxRef.current) { try { audioCtxRef.current.close() } catch (_) {}; audioCtxRef.current = null }
-    analyserRef.current = null
-    if (!skipRecog && recogRef.current) { try { recogRef.current.stop() } catch (_) {}; recogRef.current = null }
+    if (!skipRecog && recogRef.current) {
+      try { recogRef.current.abort() } catch (_) {}
+      recogRef.current = null
+    }
   }, [])
 
-  // ── Khi popup đóng → dọn dẹp ──
+  // ── Khi đóng popup ──
   useEffect(() => {
     if (!show) {
       stopAll()
       setState('idle')
       setTranscript('')
       setIsFinal(false)
+      setErrorMsg('')
       finalTextRef.current = ''
     }
   }, [show, stopAll])
 
-  // ── Khi popup mở → bắt đầu ──
+  // ── Khi mở popup → bắt đầu ──
   useEffect(() => {
     if (!show) return
+    activeRef.current = true
     startMic()
     return () => stopAll()
   }, [show]) // eslint-disable-line
 
-  // ── Lưu setting loa ngoài ──
   function toggleSpeakerMode() {
     setSpeakerMode(prev => {
       const next = !prev
@@ -67,7 +54,7 @@ export default function MicPopup({ show, onClose, onResult }) {
     })
   }
 
-  async function startMic() {
+  function startMic() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
       setState('error')
@@ -76,65 +63,36 @@ export default function MicPopup({ show, onClose, onResult }) {
       return
     }
 
-    setState('connecting')
-
-    // ── Audio constraints ──
-    // Chế độ loa ngoài: TẮT echo cancellation, noise suppression, auto gain
-    // để micro thu được âm thanh phát từ loa điện thoại / loa ngoài
-    const isSpeaker = speakerMode
-    const audioConstraints = isSpeaker
-      ? {
-          echoCancellation: false,   // QUAN TRỌNG: phải tắt để thu tiếng từ loa ngoài
-          noiseSuppression: false,   // Tắt để không lọc âm thanh loa
-          autoGainControl:  false,   // Tắt auto gain để âm lượng ổn định
-          channelCount: 1,
-        }
-      : {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl:  true,
-        }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints })
-      streamRef.current = stream
-      startBars(stream)
-    } catch (err) {
-      setState('error')
-      setErrorMsg(err.name === 'NotAllowedError'
-        ? '❌ Cần cấp quyền micro cho trình duyệt'
-        : '❌ Không thể mở micro: ' + err.message)
-      setTimeout(onClose, 2500)
-      return
-    }
-
     setState('listening')
+
     const recog = new SR()
     recog.lang            = 'vi-VN'
     recog.interimResults  = true
-    recog.continuous      = false
-    recog.maxAlternatives = 5
+    recog.continuous      = true   // liên tục để không bị dừng giữa chừng
+    recog.maxAlternatives = 3
     recogRef.current = recog
 
-    recog.onsoundstart  = () => setState(s => s === 'listening' ? 'listening' : s)
-    recog.onspeechstart = () => setState('speech')
-    recog.onspeechend   = () => setState('processing')
+    recog.onspeechstart = () => { if (activeRef.current) setState('speech') }
+    recog.onspeechend   = () => { if (activeRef.current) setState('processing') }
+    recog.onsoundstart  = () => { if (activeRef.current) setState('speech') }
 
     recog.onresult = (e) => {
+      if (!activeRef.current) return
+
       let interim = ''
       let bestFinal = ''
 
-      for (let i = 0; i < e.results.length; i++) {
-        const result = e.results[i]
-        if (result.isFinal) {
-          // Ưu tiên alternative có chứa số (để nhận mã số tốt hơn)
-          let picked = result[0].transcript
-          for (let j = 0; j < result.length; j++) {
-            if (/\d/.test(result[j].transcript)) { picked = result[j].transcript; break }
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i]
+        if (r.isFinal) {
+          // Ưu tiên alternative có số (nhận mã số tốt hơn)
+          let picked = r[0].transcript
+          for (let j = 0; j < r.length; j++) {
+            if (/\d/.test(r[j].transcript)) { picked = r[j].transcript; break }
           }
           bestFinal += picked
         } else {
-          interim += result[0].transcript
+          interim += r[0].transcript
         }
       }
 
@@ -147,26 +105,30 @@ export default function MicPopup({ show, onClose, onResult }) {
         closeTimerRef.current = setTimeout(() => {
           onResult(bestFinal)
           onClose()
-        }, 1200)
+        }, 1000)
       } else if (interim) {
         setTranscript(interim)
         setIsFinal(false)
+        setState('speech')
       }
     }
 
     recog.onerror = (e) => {
+      if (!activeRef.current) return
       if (e.error === 'aborted') return
       if (e.error === 'no-speech') {
-        // Tự khởi động lại nếu chưa có kết quả
-        if (!finalTextRef.current && recogRef.current) {
+        // Không có tiếng → thử lại nếu vẫn chờ
+        if (activeRef.current && recogRef.current) {
+          setState('listening')
           try { recogRef.current.start() } catch (_) {}
         }
         return
       }
       const msgs = {
         'not-allowed':   '❌ Cần cấp quyền micro cho trình duyệt',
-        'network':       '❌ Lỗi mạng – cần internet để nhận diện',
+        'network':       '❌ Lỗi mạng – cần kết nối internet',
         'audio-capture': '❌ Không bắt được âm thanh từ micro',
+        'service-not-allowed': '❌ Dịch vụ nhận diện bị chặn',
       }
       setState('error')
       setErrorMsg(msgs[e.error] || '❌ Lỗi: ' + e.error)
@@ -175,42 +137,28 @@ export default function MicPopup({ show, onClose, onResult }) {
     }
 
     recog.onend = () => {
-      // Nếu chưa có kết quả và popup vẫn mở → restart
-      if (!finalTextRef.current && recogRef.current) {
+      // Tự restart nếu popup vẫn mở và chưa có kết quả
+      if (activeRef.current && !finalTextRef.current && recogRef.current) {
+        setState('listening')
         try { recogRef.current.start() } catch (_) {}
-      } else {
-        recogRef.current = null
       }
     }
 
-    recog.start()
-  }
-
-  function startBars(stream) {
     try {
-      const ctx      = new (window.AudioContext || window.webkitAudioContext)()
-      const analyser = ctx.createAnalyser()
-      analyser.fftSize = 64
-      ctx.createMediaStreamSource(stream).connect(analyser)
-      audioCtxRef.current  = ctx
-      analyserRef.current  = analyser
-      const data = new Uint8Array(analyser.frequencyBinCount)
-
-      function draw() {
-        rafRef.current = requestAnimationFrame(draw)
-        analyser.getByteFrequencyData(data)
-        setBarHeights(INDICES.map(i => Math.max(4, Math.round((data[i] || 0) / 255 * 26))))
-      }
-      draw()
-    } catch (_) {}
+      recog.start()
+    } catch (e) {
+      setState('error')
+      setErrorMsg('❌ Không thể khởi động micro: ' + e.message)
+      setTimeout(onClose, 2500)
+    }
   }
 
-  const animClass = state === 'listening' || state === 'speech' || state === 'processing'
-    ? 'listening' : state === 'done' ? 'done' : ''
+  const showBars = ['listening', 'speech', 'processing'].includes(state)
+  const animClass = showBars ? 'listening' : state === 'done' ? 'done' : ''
 
   const titleMap = {
-    idle: '',
-    connecting: '⏳ Đang kết nối micro...',
+    idle:       '',
+    connecting: '⏳ Đang kết nối...',
     listening:  speakerMode ? '🔊 Nghe qua loa ngoài...' : '🎤 Đang nghe...',
     speech:     '🎙️ Đang nhận giọng nói...',
     processing: '⚙️ Đang xử lý...',
@@ -219,30 +167,28 @@ export default function MicPopup({ show, onClose, onResult }) {
   }
   const hintMap = {
     listening:  speakerMode
-      ? 'Giữ điện thoại gần loa / để loa phát âm thanh'
+      ? 'Giữ điện thoại gần loa ngoài'
       : 'Nói tên sản phẩm bạn cần tìm',
     connecting: 'Vui lòng chờ một chút',
+    speech:     'Đang lắng nghe...',
+    processing: 'Đang xử lý giọng nói...',
     done:       transcript,
   }
-
-  const showBars = ['listening', 'speech', 'processing'].includes(state)
 
   return (
     <div className={`mic-overlay${show ? ' show' : ''}`}>
       <div className="mic-popup">
 
-        {/* Toggle loa ngoài – hiển thị ngay trong popup */}
-        <div className="mic-speaker-toggle" onClick={toggleSpeakerMode} title="Bật/tắt chế độ loa ngoài">
+        {/* Toggle loa ngoài */}
+        <div className="mic-speaker-toggle" onClick={toggleSpeakerMode}>
           <div className={`mic-speaker-icon${speakerMode ? ' active' : ''}`}>
             {speakerMode ? (
-              /* Loa bật */
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
                 <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
                 <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
               </svg>
             ) : (
-              /* Loa tắt */
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
                 <line x1="23" y1="9" x2="17" y2="15"/>
@@ -255,6 +201,7 @@ export default function MicPopup({ show, onClose, onResult }) {
           </span>
         </div>
 
+        {/* Icon mic */}
         <div className={`mic-anim-wrap ${animClass}`}>
           <svg className="mic-icon-svg" width="38" height="38" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -265,18 +212,19 @@ export default function MicPopup({ show, onClose, onResult }) {
           </svg>
         </div>
 
+        {/* Bars – CSS animation (không dùng getUserMedia để tránh xung đột) */}
         <div className={`mic-bars${showBars ? ' active' : ''}`}>
           {BARS.map(i => (
-            <div key={i} className="mic-bar" style={{ height: barHeights[i] + 'px' }} />
+            <div key={i} className="mic-bar mic-bar-css" style={{ animationDelay: `${i * 0.1}s` }} />
           ))}
         </div>
 
         <div className="mic-popup-title">{titleMap[state] || ''}</div>
         <div className="mic-popup-hint">{hintMap[state] || ''}</div>
 
-        {speakerMode && state === 'listening' && (
+        {speakerMode && (state === 'listening' || state === 'speech') && (
           <div className="mic-speaker-tip">
-            💡 Chế độ loa ngoài: micro sẽ thu âm từ loa.<br/>
+            💡 Micro sẽ thu âm từ loa.<br/>
             Đặt điện thoại gần nguồn âm thanh.
           </div>
         )}
