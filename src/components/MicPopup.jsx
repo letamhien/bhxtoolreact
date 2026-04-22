@@ -3,12 +3,24 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 const BARS = [0, 1, 2, 3, 4, 5, 6]
 const INDICES = [2, 4, 6, 8, 10, 13, 16]
 
+/**
+ * MicPopup – nhận diện giọng nói tiếng Việt
+ * Props:
+ *   show      – boolean hiện/ẩn popup
+ *   onClose   – callback đóng
+ *   onResult  – callback khi có kết quả
+ *   speakerMode (optional bool) – kế thừa giá trị từ ngoài nếu cần
+ */
 export default function MicPopup({ show, onClose, onResult }) {
   const [state, setState] = useState('idle') // idle|connecting|listening|speech|processing|done|error
   const [transcript, setTranscript] = useState('')
   const [isFinal, setIsFinal] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [barHeights, setBarHeights] = useState([8, 14, 20, 14, 8, 20, 10])
+  // Loa ngoài: tắt echo cancellation để thu được âm thanh phát từ loa
+  const [speakerMode, setSpeakerMode] = useState(() => {
+    try { return localStorage.getItem('mic_speaker_mode') === '1' } catch { return false }
+  })
 
   const recogRef      = useRef(null)
   const streamRef     = useRef(null)
@@ -46,6 +58,15 @@ export default function MicPopup({ show, onClose, onResult }) {
     return () => stopAll()
   }, [show]) // eslint-disable-line
 
+  // ── Lưu setting loa ngoài ──
+  function toggleSpeakerMode() {
+    setSpeakerMode(prev => {
+      const next = !prev
+      try { localStorage.setItem('mic_speaker_mode', next ? '1' : '0') } catch (_) {}
+      return next
+    })
+  }
+
   async function startMic() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
@@ -57,10 +78,25 @@ export default function MicPopup({ show, onClose, onResult }) {
 
     setState('connecting')
 
+    // ── Audio constraints ──
+    // Chế độ loa ngoài: TẮT echo cancellation, noise suppression, auto gain
+    // để micro thu được âm thanh phát từ loa điện thoại / loa ngoài
+    const isSpeaker = speakerMode
+    const audioConstraints = isSpeaker
+      ? {
+          echoCancellation: false,   // QUAN TRỌNG: phải tắt để thu tiếng từ loa ngoài
+          noiseSuppression: false,   // Tắt để không lọc âm thanh loa
+          autoGainControl:  false,   // Tắt auto gain để âm lượng ổn định
+          channelCount: 1,
+        }
+      : {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl:  true,
+        }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-      })
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints })
       streamRef.current = stream
       startBars(stream)
     } catch (err) {
@@ -76,7 +112,7 @@ export default function MicPopup({ show, onClose, onResult }) {
     const recog = new SR()
     recog.lang            = 'vi-VN'
     recog.interimResults  = true
-    recog.continuous      = false   // false để nhận isFinal chắc chắn hơn
+    recog.continuous      = false
     recog.maxAlternatives = 5
     recogRef.current = recog
 
@@ -175,14 +211,16 @@ export default function MicPopup({ show, onClose, onResult }) {
   const titleMap = {
     idle: '',
     connecting: '⏳ Đang kết nối micro...',
-    listening:  '🎤 Đang nghe...',
+    listening:  speakerMode ? '🔊 Nghe qua loa ngoài...' : '🎤 Đang nghe...',
     speech:     '🎙️ Đang nhận giọng nói...',
     processing: '⚙️ Đang xử lý...',
     done:       '✅ Nhận được!',
     error:      errorMsg,
   }
   const hintMap = {
-    listening:  'Nói tên sản phẩm bạn cần tìm',
+    listening:  speakerMode
+      ? 'Giữ điện thoại gần loa / để loa phát âm thanh'
+      : 'Nói tên sản phẩm bạn cần tìm',
     connecting: 'Vui lòng chờ một chút',
     done:       transcript,
   }
@@ -192,6 +230,31 @@ export default function MicPopup({ show, onClose, onResult }) {
   return (
     <div className={`mic-overlay${show ? ' show' : ''}`}>
       <div className="mic-popup">
+
+        {/* Toggle loa ngoài – hiển thị ngay trong popup */}
+        <div className="mic-speaker-toggle" onClick={toggleSpeakerMode} title="Bật/tắt chế độ loa ngoài">
+          <div className={`mic-speaker-icon${speakerMode ? ' active' : ''}`}>
+            {speakerMode ? (
+              /* Loa bật */
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+            ) : (
+              /* Loa tắt */
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <line x1="23" y1="9" x2="17" y2="15"/>
+                <line x1="17" y1="9" x2="23" y2="15"/>
+              </svg>
+            )}
+          </div>
+          <span className={`mic-speaker-label${speakerMode ? ' active' : ''}`}>
+            {speakerMode ? 'Loa ngoài ON' : 'Loa ngoài'}
+          </span>
+        </div>
+
         <div className={`mic-anim-wrap ${animClass}`}>
           <svg className="mic-icon-svg" width="38" height="38" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -210,6 +273,13 @@ export default function MicPopup({ show, onClose, onResult }) {
 
         <div className="mic-popup-title">{titleMap[state] || ''}</div>
         <div className="mic-popup-hint">{hintMap[state] || ''}</div>
+
+        {speakerMode && state === 'listening' && (
+          <div className="mic-speaker-tip">
+            💡 Chế độ loa ngoài: micro sẽ thu âm từ loa.<br/>
+            Đặt điện thoại gần nguồn âm thanh.
+          </div>
+        )}
 
         <div className={`mic-transcript${isFinal ? ' has-text' : ''}`}>
           {transcript
