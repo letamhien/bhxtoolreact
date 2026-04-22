@@ -1,7 +1,17 @@
 import { useState, useCallback, useRef } from 'react'
 import MicPopup from '../components/MicPopup'
 import masData from '../data/masData'
+import MicDebug from '../components/MicDebug'
 
+const [showDebug, setShowDebug] = useState(false)
+{showDebug 
+  ? <MicDebug /> 
+  : <button onClick={() => setShowDebug(true)} 
+      style={{position:'fixed', bottom:16, right:16, background:'#333', 
+              color:'#fff', border:'none', borderRadius:8, padding:'8px 14px'}}>
+      🔧 Debug Mic
+    </button>
+}
 const VI_MAP = [
   [/[àáâãäåăắặẵẳấầẩẫą]/gi, 'a'],
   [/[èéêëěẻẹẽếềểễệ]/gi, 'e'],
