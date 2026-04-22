@@ -31,7 +31,7 @@ export default function NavBar() {
           <rect x="3" y="12" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.8"/>
           <path d="M12 14.5h7M15.5 12v7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
         </svg>
-        Mã số
+        Code
       </NavLink>
     </nav>
   )
