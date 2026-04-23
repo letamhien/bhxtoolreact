@@ -46,7 +46,7 @@ export default function MasPage() {
   const inputRef = useRef()
 
   // THAY ĐƯỜNG LINK CSV CỦA BẠN VÀO ĐÂY
-  const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1v.../pub?output=csv";
+  const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQSaWH8C82WPlKgbO7SRnXxC9DB80tasOqoueJ1hQFFIb-i-FxuF3mGmn5OliJS-NqZ2_EtDBp6kAbk/pub?output=csv";
 
   // Hàm lấy dữ liệu từ Google Sheets
   useEffect(() => {
