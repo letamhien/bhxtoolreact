@@ -18,6 +18,16 @@ function removeAccents(str) {
   return s
 }
 
+// Hàm mới: Lấy các chữ cái đầu tiên của mỗi từ (Ví dụ: "đuôi cá hồi" -> "dch")
+function getInitials(str) {
+  return removeAccents(str)
+    // Tách chuỗi bằng các ký tự không phải là chữ cái hoặc số (khoảng trắng, dấu ngoặc, gạch ngang...)
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean) // Loại bỏ các chuỗi rỗng
+    .map(word => word.charAt(0))
+    .join('');
+}
+
 function highlight(text, query) {
   if (!query) return text
   const esc = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -39,10 +49,16 @@ export default function MasPage() {
     if (!q) return masData
     const qNorm  = removeAccents(q)
     const qLower = q.toLowerCase()
+    
     return masData.filter(item => {
       const nameNorm = removeAccents(item.name)
       const codeLow  = item.code.toLowerCase()
-      return nameNorm.includes(qNorm) || item.name.toLowerCase().includes(qLower) || codeLow.includes(qLower)
+      const initials = getInitials(item.name) // Lấy từ viết tắt của sản phẩm
+
+      return nameNorm.includes(qNorm) || 
+             item.name.toLowerCase().includes(qLower) || 
+             codeLow.includes(qLower) ||
+             initials.includes(qNorm) // Thêm điều kiện tìm kiếm theo chữ cái đầu
     })
   }, [query])()
 
