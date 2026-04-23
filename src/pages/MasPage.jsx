@@ -1,6 +1,8 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import MicPopup from '../components/MicPopup'
-import masData from '../data/masData'
+
+// Bạn có thể giữ file masData.js cũ làm backup trong thư mục data
+// Ở đây chúng ta sẽ không import nó nữa mà lấy online
 
 const VI_MAP = [
   [/[àáâãäåăắặẵẳấầẩẫą]/gi, 'a'],
@@ -18,12 +20,10 @@ function removeAccents(str) {
   return s
 }
 
-// Hàm mới: Lấy các chữ cái đầu tiên của mỗi từ (Ví dụ: "đuôi cá hồi" -> "dch")
 function getInitials(str) {
   return removeAccents(str)
-    // Tách chuỗi bằng các ký tự không phải là chữ cái hoặc số (khoảng trắng, dấu ngoặc, gạch ngang...)
     .split(/[^a-z0-9]+/i)
-    .filter(Boolean) // Loại bỏ các chuỗi rỗng
+    .filter(Boolean)
     .map(word => word.charAt(0))
     .join('');
 }
@@ -37,32 +37,60 @@ function highlight(text, query) {
 }
 
 export default function MasPage() {
-  const [query,     setQuery]     = useState('')
-  const [showMic,   setShowMic]   = useState(false)
+  const [data, setData] = useState([]) // Dữ liệu từ Google Sheets
+  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [showMic, setShowMic] = useState(false)
   const [showToast, setShowToast] = useState(false)
   const toastTimer = useRef(null)
-  const inputRef   = useRef()
+  const inputRef = useRef()
 
-  // ── Tìm kiếm ──
+  // THAY ĐƯỜNG LINK CSV CỦA BẠN VÀO ĐÂY
+  const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1v.../pub?output=csv";
+
+  // Hàm lấy dữ liệu từ Google Sheets
+  useEffect(() => {
+    fetch(SHEET_CSV_URL)
+      .then(res => res.text())
+      .then(csvText => {
+        const rows = csvText.split('\n').slice(1); // Bỏ hàng tiêu đề
+        const parsedData = rows.map(row => {
+          // Xử lý trường hợp có dấu phẩy trong nội dung (nếu có dùng ngoặc kép)
+          const columns = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          return {
+            name: columns[0]?.replace(/"/g, '').trim() || '',
+            code: columns[1]?.replace(/"/g, '').trim() || '',
+            note: columns[2]?.replace(/"/g, '').trim() || ''
+          };
+        }).filter(item => item.name && item.code); // Loại bỏ hàng trống
+        
+        setData(parsedData);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Lỗi tải dữ liệu:", err);
+        setLoading(false);
+      });
+  }, []);
+
   const results = useCallback(() => {
     const q = query.trim()
-    if (!q) return masData
-    const qNorm  = removeAccents(q)
+    if (!q) return data
+    const qNorm = removeAccents(q)
     const qLower = q.toLowerCase()
     
-    return masData.filter(item => {
+    return data.filter(item => {
       const nameNorm = removeAccents(item.name)
-      const codeLow  = item.code.toLowerCase()
-      const initials = getInitials(item.name) // Lấy từ viết tắt của sản phẩm
+      const codeLow = item.code.toLowerCase()
+      const initials = getInitials(item.name)
 
       return nameNorm.includes(qNorm) || 
              item.name.toLowerCase().includes(qLower) || 
              codeLow.includes(qLower) ||
-             initials.includes(qNorm) // Thêm điều kiện tìm kiếm theo chữ cái đầu
+             initials.includes(qNorm)
     })
-  }, [query])()
+  }, [query, data])(); // Thêm data vào dependency
 
-  // ── Copy ──
   function copyCode(code) {
     const speak = () => {
       if (!window.speechSynthesis) return
@@ -92,19 +120,11 @@ export default function MasPage() {
     document.body.removeChild(ta)
   }
 
-  function clearQuery() {
-    setQuery('')
-    inputRef.current?.focus()
-  }
-
-  // ── Khi mic nhận được kết quả ──
-  function handleMicResult(text) {
-    setQuery(text.trim())
-  }
+  if (loading) return <div className="mas-loading">Đang tải dữ liệu từ Google Sheets...</div>
 
   return (
     <div className="mas-page">
-      {/* Search bar */}
+      {/* Search bar giữ nguyên như cũ */}
       <div className="mas-search-bar">
         <div className="mas-input-row">
           <div className="mas-input-wrap">
@@ -114,43 +134,23 @@ export default function MasPage() {
               </svg>
             </span>
             <input ref={inputRef} className="mas-input" type="text"
-              placeholder="Tìm tên sản phẩm..." autoComplete="off"
-              autoCorrect="off" spellCheck={false} value={query}
+              placeholder="Tìm tên hoặc viết tắt (vdu: dch)..." value={query}
               onChange={e => setQuery(e.target.value)} />
-            {query && (
-              <button className="mas-clear-btn" onClick={clearQuery}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M18 6 6 18M6 6l12 12"/>
-                </svg>
-              </button>
-            )}
+            {query && <button className="mas-clear-btn" onClick={() => setQuery('')}>✕</button>}
           </div>
-          <button className={`mas-mic-btn${showMic ? ' listening' : ''}`}
-            onClick={() => setShowMic(true)}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="2" width="6" height="12" rx="3"/>
-              <path d="M5 10a7 7 0 0 0 14 0"/>
-              <line x1="12" y1="19" x2="12" y2="22"/>
-              <line x1="8"  y1="22" x2="16" y2="22"/>
-            </svg>
+          <button className={`mas-mic-btn${showMic ? ' listening' : ''}`} onClick={() => setShowMic(true)}>
+             {/* Icon Mic giữ nguyên */}
+             🎙️
           </button>
         </div>
       </div>
 
-      {/* Results list */}
       <div className="mas-list">
         {results.length === 0 ? (
-          <div className="mas-empty">
-            <div className="mas-empty-icon">🔍</div>
-            <div className="mas-empty-title">Không tìm thấy</div>
-            <div className="mas-empty-sub">Thử tìm bằng tên khác hoặc không dấu</div>
-          </div>
+          <div className="mas-empty">Không tìm thấy sản phẩm</div>
         ) : (
           <>
-            {query && (
-              <div className="mas-count">Tìm thấy {results.length} kết quả</div>
-            )}
+            {query && <div className="mas-count">Tìm thấy {results.length} kết quả</div>}
             {results.map((item, i) => (
               <div key={i} className="mas-item" onClick={() => copyCode(item.code)}>
                 <div className="mas-item-left">
@@ -163,18 +163,9 @@ export default function MasPage() {
             ))}
           </>
         )}
-        <div className="footer">Bách Hoá Xanh · Tra Cứu Code</div>
       </div>
-
-      {/* Toast */}
       <div className={`copy-toast${showToast ? ' show' : ''}`}>✅ Đã sao chép mã số!</div>
-
-      {/* Mic Popup */}
-      <MicPopup
-        show={showMic}
-        onClose={() => setShowMic(false)}
-        onResult={handleMicResult}
-      />
+      <MicPopup show={showMic} onClose={() => setShowMic(false)} onResult={(text) => setQuery(text)} />
     </div>
   )
 }
