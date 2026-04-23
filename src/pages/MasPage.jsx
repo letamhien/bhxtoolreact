@@ -83,7 +83,7 @@ export default function MasPage() {
              codeLow.includes(qLower) ||
              initials.includes(qNorm)
     })
-  }, [query, data])(); // Thêm data vào dependency
+  }, [query, data])();
 
   function copyCode(code) {
     const speak = () => {
@@ -113,6 +113,17 @@ export default function MasPage() {
     try { document.execCommand('copy'); cb() } catch (_) {}
     document.body.removeChild(ta)
   }
+
+  // BỔ SUNG LẠI 2 HÀM BỊ THIẾU Ở ĐÂY 👇
+  function clearQuery() {
+    setQuery('')
+    inputRef.current?.focus()
+  }
+
+  function handleMicResult(text) {
+    setQuery(text.trim())
+  }
+  // 👆
 
   return (
     <div className="mas-page">
