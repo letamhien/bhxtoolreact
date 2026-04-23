@@ -52,15 +52,15 @@ const masData = [
   { name: "Cá basa cắt khúc", code: "413", note: "" },
   { name: "Bạch tuột", code: "4210", note: "" },
   { name: "Mực nút ls", code: "424", note: "" },
-  { name: "Mực ốngNC", code: "423", note: "Làm sạch: 4236" },
-  { name: "Tôm thẻ nc", code: "420", note: "" },
+  { name: "Mực ống NC", code: "423", note: "Làm sạch: 4236" },
+  { name: "Tôm thẻ NC", code: "420", note: "" },
   { name: "Cá cam nhật size nhỏ", code: "40377", note: "Làm sạch: 40383" },
   { name: "Cá đối", code: "4038", note: "Làm sạch: 4039" },
   { name: "Cá hồi coho", code: "40372", note: "Làm sạch: 40381" },
   { name: "Cổ cá hồi", code: "4411", note: "" },
   { name: "Đầu cá hồi sala", code: "40375", note: "Làm sạch: 40382" },
   { name: "Đuôi cá hồi", code: "4430", note: "" },
-  { name: "Râu mựcNK", code: "4262", note: "" }
+  { name: "Râu mực NK", code: "4262", note: "" }
 ];
 
 export default masData;
