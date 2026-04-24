@@ -6,7 +6,7 @@ import MicDebug from './components/Micdebug'
 import HsdPage from './pages/HsdPage'
 import GiaPage from './pages/GiaPage'
 import MasPage from './pages/MasPage'
-import MasPage from './pages/ExpiryPage'
+import ExpiryPage from './pages/ExpiryPage'
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
