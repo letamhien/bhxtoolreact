@@ -6,6 +6,7 @@ import MicDebug from './components/Micdebug'
 import HsdPage from './pages/HsdPage'
 import GiaPage from './pages/GiaPage'
 import MasPage from './pages/MasPage'
+import MasPage from './pages/ExpiryPage'
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="/hsd" element={<HsdPage />} />
           <Route path="/gia" element={<GiaPage />} />
           <Route path="/mas" element={<MasPage />} />
+          <Route path="/expiry" element={<ExpiryPage />} />
           <Route path="/debug" element={<MicDebug />} />
         </Routes>
       </div>
