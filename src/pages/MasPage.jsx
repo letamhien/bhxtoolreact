@@ -52,7 +52,7 @@ export default function MasPage() {
         const parsedData = rows.map(row => {
           const columns = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
           return {
-            name: columns[0]?.replace(/"/g, '').trim() || '',
+            name: (columns[0]?.replace(/"/g, '').trim() || '').toUpperCase(),
             code: columns[1]?.replace(/"/g, '').trim() || '',
             note: columns[2]?.replace(/"/g, '').trim() || ''
           };
