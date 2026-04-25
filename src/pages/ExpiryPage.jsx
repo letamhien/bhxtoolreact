@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT9s_x0FnbDTy5ouSDYvQWqptLYwOOoi3exViww1SH6zklxF9a1Rg_lltsO1F3beY1Y9mHMPaJDAYrC/pub?output=csv"
 
-// Cột CSV: Tên sản phẩm | Code | Ngày hết hạn | Số lượng | Ghi chú
 function parseCSV(csvText) {
   const rows = csvText.split('\n').slice(1)
   return rows.map(row => {
@@ -14,18 +13,15 @@ function parseCSV(csvText) {
       note:   cols[4]?.replace(/"/g, '').trim() || '',
     }
   }).filter(r => r.name)
->>>>>>> c78a06c (feat: MasPage fetch CSV from Sheet, ExpiryPage dùng CSV thay gviz/tq)
 }
 
 function parseDate(val) {
   if (!val) return null
-  // dd/mm/yyyy
   if (val.includes('/')) {
     const [d, m, y] = val.split('/').map(Number)
     if (!d || !m || !y) return null
     return new Date(y, m - 1, d)
   }
-  // yyyy-mm-dd hoặc các dạng khác
   const d = new Date(val)
   return isNaN(d) ? null : d
 }
