@@ -1,24 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-
-<<<<<<< HEAD
-// ⚠ Thay YOUR_SHEET_ID và YOUR_SHEET_GID nếu cần
-const SHEET_ID  = '1WirG9TEy80vTA-X2IrxfREHNS6IhW6Kd-Olt_Q4ikBw'
-const SHEET_GID = '0'
-const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${SHEET_GID}`
-
-function parseSheet(raw) {
-  // Google Sheets trả về dạng /*O_o*/\ngoogle.visualization.Query.setResponse({...})
-  const json = JSON.parse(raw.replace(/^[^{]*/, '').replace(/[^}]*$/, ''))
-  const rows  = json.table?.rows || []
-  return rows.map(r => ({
-    name:    r.c[0]?.v ?? '',
-    code:    r.c[1]?.v ?? '',
-    expiry:  r.c[2]?.v ?? '',
-    qty:     r.c[3]?.v ?? '',
-    note:    r.c[4]?.v ?? '',
-  })).filter(r => r.name)
-=======
-// ⚠ Thay bằng URL publish CSV của Google Sheet Cận Date
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT9s_x0FnbDTy5ouSDYvQWqptLYwOOoi3exViww1SH6zklxF9a1Rg_lltsO1F3beY1Y9mHMPaJDAYrC/pub?output=csv"
 
 // Cột CSV: Tên sản phẩm | Code | Ngày hết hạn | Số lượng | Ghi chú
