@@ -3,27 +3,27 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 const BARS = [0, 1, 2, 3, 4, 5, 6]
 
 export default function MicPopup({ show, onClose, onResult }) {
-  const [state, setState]       = useState('idle')
+  const [state, setState]           = useState('idle')
   const [transcript, setTranscript] = useState('')
-  const [isFinal, setIsFinal]   = useState(false)
-  const [errorMsg, setErrorMsg] = useState('')
+  const [isFinal, setIsFinal]       = useState(false)
+  const [errorMsg, setErrorMsg]     = useState('')
   const [speakerMode, setSpeakerMode] = useState(() => {
     try { return localStorage.getItem('mic_speaker_mode') === '1' } catch { return false }
   })
 
-  const recogRef       = useRef(null)
-  const closeTimerRef  = useRef(null)
-  const finalTextRef   = useRef('')
-  const activeRef      = useRef(false)
-  const abortingRef    = useRef(false) // ← NEW: phân biệt abort chủ động vs tự dừng
-  const streamRef      = useRef(null)  // ← NEW: giữ getUserMedia stream
+  const recogRef      = useRef(null)
+  const closeTimerRef = useRef(null)
+  const finalTextRef  = useRef('')
+  const activeRef     = useRef(false)
+  const abortingRef   = useRef(false)
+  const streamRef     = useRef(null)
 
   // ── Dừng tất cả ──
   const stopAll = useCallback((skipRecog = false) => {
     activeRef.current   = false
     abortingRef.current = true
     clearTimeout(closeTimerRef.current)
-  
+
     if (!skipRecog && recogRef.current) {
       try { recogRef.current.abort() } catch (_) {}
       recogRef.current = null
@@ -64,12 +64,8 @@ export default function MicPopup({ show, onClose, onResult }) {
   async function requestMicPermission() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      
-      // ✅ QUAN TRỌNG: Dừng stream NGAY SAU KHI xin quyền xong
-      // Không giữ stream → SpeechRecognition mới dùng được mic
       stream.getTracks().forEach(t => t.stop())
-      streamRef.current = null  // không giữ nữa
-  
+      streamRef.current = null
       return true
     } catch (err) {
       const msgs = {
@@ -95,7 +91,6 @@ export default function MicPopup({ show, onClose, onResult }) {
 
     setState('connecting')
 
-    // BƯỚC 1: Xin quyền mic + kích hoạt HFP profile trên Bluetooth
     const granted = await requestMicPermission()
     if (!granted || !activeRef.current) return
 
@@ -104,7 +99,7 @@ export default function MicPopup({ show, onClose, onResult }) {
     const recog = new SR()
     recog.lang            = 'vi-VN'
     recog.interimResults  = true
-    recog.continuous      = false  // ← false hoạt động tốt hơn trên mobile Chrome
+    recog.continuous      = false
     recog.maxAlternatives = 3
     recogRef.current = recog
 
@@ -153,14 +148,13 @@ export default function MicPopup({ show, onClose, onResult }) {
       if (e.error === 'aborted') return
 
       if (e.error === 'no-speech') {
-        // Thử lại – nhưng tạo instance MỚI (tránh bug Chrome mobile)
         if (activeRef.current) {
           try { recogRef.current?.abort() } catch (_) {}
           recogRef.current = null
           setTimeout(() => {
             if (activeRef.current) {
               setState('listening')
-              startRecogOnly() // Chỉ restart recog, không getUserMedia lại
+              startRecogOnly()
             }
           }, 300)
         }
@@ -180,7 +174,6 @@ export default function MicPopup({ show, onClose, onResult }) {
     }
 
     recog.onend = () => {
-      // Chỉ restart nếu KHÔNG phải do ta abort chủ động
       if (activeRef.current && !finalTextRef.current && !abortingRef.current) {
         setState('listening')
         setTimeout(() => {
@@ -200,7 +193,6 @@ export default function MicPopup({ show, onClose, onResult }) {
     }
   }
 
-  // Restart chỉ phần SpeechRecognition (dùng lại stream cũ)
   function startRecogOnly() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR || !activeRef.current) return
@@ -212,7 +204,6 @@ export default function MicPopup({ show, onClose, onResult }) {
     recog.maxAlternatives = 3
     recogRef.current = recog
 
-    // Gán lại handlers (copy từ startMic)
     recog.onspeechstart = () => { if (activeRef.current) setState('speech') }
     recog.onspeechend   = () => { if (activeRef.current) setState('processing') }
     recog.onresult = (e) => {
