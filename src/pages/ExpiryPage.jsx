@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 
 // ⚠ Thay YOUR_SHEET_ID và YOUR_SHEET_GID nếu cần
-const SHEET_ID  = '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms'
+const SHEET_ID  = '1WirG9TEy80vTA-X2IrxfREHNS6IhW6Kd-Olt_Q4ikBw'
 const SHEET_GID = '0'
 const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${SHEET_GID}`
 
@@ -12,7 +12,7 @@ function parseSheet(raw) {
   return rows.map(r => ({
     name:    r.c[0]?.v ?? '',
     code:    r.c[1]?.v ?? '',
-    expiry:  r.c[2]?.v ?? '',   // dạng dd/mm/yyyy hoặc Date serial
+    expiry:  r.c[2]?.v ?? '',
     qty:     r.c[3]?.v ?? '',
     note:    r.c[4]?.v ?? '',
   })).filter(r => r.name)
