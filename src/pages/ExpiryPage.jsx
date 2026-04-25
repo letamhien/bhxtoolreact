@@ -4,15 +4,15 @@ const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT9s_x0Fn
 function parseCSV(csvText) {
   const rows = csvText.split('\n').slice(1)
   return rows.map(row => {
+    // Tách cột bằng Regex để xử lý trường hợp có dấu phẩy trong nội dung
     const cols = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
     return {
-      name:   (cols[0]?.replace(/"/g, '').trim() || '').toUpperCase(),
-      code:   cols[1]?.replace(/"/g, '').trim() || '',
-      expiry: cols[2]?.replace(/"/g, '').trim() || '',
-      qty:    cols[3]?.replace(/"/g, '').trim() || '',
-      note:   cols[4]?.replace(/"/g, '').trim() || '',
+      name:     (cols[0]?.replace(/"/g, '').trim() || '').toUpperCase(), // Cột 1: Tên (In hoa)
+      expiry:   cols[1]?.replace(/"/g, '').trim() || '',                 // Cột 2: Ngày HSD
+      qty:      cols[2]?.replace(/"/g, '').trim() || '',                 // Cột 3: Số lượng
+      location: cols[3]?.replace(/"/g, '').trim() || '',                 // Cột 4: Vị trí
     }
-  }).filter(r => r.name)
+  }).filter(r => r.name) // Loại bỏ các dòng trống không có tên
 }
 
 function parseDate(val) {
@@ -36,6 +36,7 @@ function getStatus(expDate) {
   const today = new Date(); today.setHours(0,0,0,0)
   const diff   = Math.round((expDate - today) / 86400000)
   if (diff < 0)   return 'expired'
+  if (diff === 0) return 'expired' // Coi ngày 0 (Hôm nay) là hết hạn luôn để xử lý
   if (diff <= 3)  return 'critical'
   if (diff <= 7)  return 'warn'
   return 'ok'
@@ -48,11 +49,11 @@ function getDiff(expDate) {
 }
 
 const STATUS_CFG = {
-  expired:  { label:'HẾT HẠN',    cls:'badge-expired',  icon:'🔴' },
-  critical: { label:'CẦN XỬ LÝ',  cls:'badge-critical', icon:'🟠' },
-  warn:     { label:'SẮP HẾT',    cls:'badge-warn',     icon:'🟡' },
-  ok:       { label:'CÒN HẠN',    cls:'badge-ok',       icon:'🟢' },
-  unknown:  { label:'KHÔNG RÕ',   cls:'badge-unknown',  icon:'⚪' },
+  expired:  { label:'HẾT HẠN',   cls:'badge-expired',  icon:'🔴' },
+  critical: { label:'CẦN XỬ LÝ', cls:'badge-critical', icon:'🟠' },
+  warn:     { label:'SẮP HẾT',   cls:'badge-warn',     icon:'🟡' },
+  ok:       { label:'CÒN HẠN',   cls:'badge-ok',       icon:'🟢' },
+  unknown:  { label:'KHÔNG RÕ',  cls:'badge-unknown',  icon:'⚪' },
 }
 
 export default function ExpiryPage() {
@@ -147,7 +148,7 @@ export default function ExpiryPage() {
         <div className="expiry-list">
           <div className="mas-loading-container">
             <div className="mas-spinner"></div>
-            <div className="mas-loading-text">Đang tải dữ liệu từ Google Sheets...</div>
+            <div className="mas-loading-text">Đang tải dữ liệu cận date...</div>
           </div>
         </div>
       )}
@@ -161,7 +162,7 @@ export default function ExpiryPage() {
         </div>
       )}
 
-      {/* Danh sách */}
+      {/* Danh sách hiển thị theo format mới */}
       {!loading && !error && (
         <div className="expiry-list">
           {filtered.length === 0 ? (
@@ -173,7 +174,7 @@ export default function ExpiryPage() {
           ) : filtered.map((item, i) => {
             const cfg = STATUS_CFG[item.status]
             const diffText = item.diff === null    ? '?'
-              : item.diff < 0                      ? `Hết hạn ${Math.abs(item.diff)} ngày trước`
+              : item.diff < 0                      ? `Trễ ${Math.abs(item.diff)} ngày`
               : item.diff === 0                    ? 'Hết hạn hôm nay'
               :                                      `Còn ${item.diff} ngày`
 
@@ -181,14 +182,22 @@ export default function ExpiryPage() {
               <div key={i} className={`expiry-item expiry-item-${item.status}`}>
                 <div className="expiry-item-left">
                   <div className="expiry-item-name">{item.name}</div>
-                  {item.code && <div className="expiry-item-code">Code: {item.code}</div>}
-                  {item.qty  && <div className="expiry-item-qty">SL: {item.qty}</div>}
-                  {item.note && <div className="expiry-item-note">{item.note}</div>}
+                  {/* Hiển thị Location đẹp mắt */}
+                  <div className="expiry-item-info">
+                    <span className="info-icon">📍</span> 
+                    <span className="info-text">{item.location || 'Chưa cập nhật vị trí'}</span>
+                  </div>
+                  {/* Hiển thị Số lượng */}
+                  <div className="expiry-item-info">
+                    <span className="info-icon">📦</span>
+                    <span className="info-text">Tồn kho: <strong>{item.qty || 0}</strong></span>
+                  </div>
                 </div>
+                
                 <div className="expiry-item-right">
                   <div className={`expiry-badge ${cfg.cls}`}>{cfg.icon} {cfg.label}</div>
                   <div className="expiry-item-date">{fmtDate(item.expDate)}</div>
-                  <div className="expiry-item-diff">{diffText}</div>
+                  <div className={`expiry-item-diff diff-${item.status}`}>{diffText}</div>
                 </div>
               </div>
             )
