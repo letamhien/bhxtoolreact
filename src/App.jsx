@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Header from './components/Header'
 import NavBar from './components/NavBar'
-import MicDebug from './components/Micdebug'
 import HsdPage from './pages/HsdPage'
 import GiaPage from './pages/GiaPage'
 import MasPage from './pages/MasPage'
@@ -27,12 +26,11 @@ export default function App() {
       <NavBar />
       <div className="page-content">
         <Routes>
-          <Route path="/" element={<Navigate to="/hsd" replace />} />
+          <Route path="/" element={<Navigate to="/gia" replace />} />
           <Route path="/hsd" element={<HsdPage />} />
           <Route path="/gia" element={<GiaPage />} />
           <Route path="/mas" element={<MasPage />} />
           <Route path="/expiry" element={<ExpiryPage />} />
-          <Route path="/debug" element={<MicDebug />} />
         </Routes>
       </div>
     </div>
