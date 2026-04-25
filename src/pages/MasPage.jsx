@@ -57,7 +57,7 @@ export default function MasPage() {
             note: columns[2]?.replace(/"/g, '').trim() || ''
           };
         }).filter(item => item.name && item.code);
-        
+
         setData(parsedData);
         setLoading(false);
       })
@@ -72,14 +72,13 @@ export default function MasPage() {
     if (!q) return data
     const qNorm = removeAccents(q)
     const qLower = q.toLowerCase()
-    
+
     return data.filter(item => {
       const nameNorm = removeAccents(item.name)
       const codeLow = item.code.toLowerCase()
       const initials = getInitials(item.name)
-
-      return nameNorm.includes(qNorm) || 
-             item.name.toLowerCase().includes(qLower) || 
+      return nameNorm.includes(qNorm) ||
+             item.name.toLowerCase().includes(qLower) ||
              codeLow.includes(qLower) ||
              initials.includes(qNorm)
     })
@@ -114,7 +113,6 @@ export default function MasPage() {
     document.body.removeChild(ta)
   }
 
-  // BỔ SUNG LẠI 2 HÀM BỊ THIẾU Ở ĐÂY 👇
   function clearQuery() {
     setQuery('')
     inputRef.current?.focus()
@@ -123,7 +121,6 @@ export default function MasPage() {
   function handleMicResult(text) {
     setQuery(text.trim())
   }
-  // 👆
 
   return (
     <div className="mas-page">
@@ -138,7 +135,7 @@ export default function MasPage() {
             <input ref={inputRef} className="mas-input" type="text"
               placeholder="Tìm tên hoặc viết tắt (vdu: dch)..." autoComplete="off"
               autoCorrect="off" spellCheck={false} value={query}
-              onChange={e => setQuery(e.target.value)} 
+              onChange={e => setQuery(e.target.value)}
               disabled={loading}
             />
             {query && (
@@ -161,6 +158,7 @@ export default function MasPage() {
           </button>
         </div>
       </div>
+
       <div className="mas-list">
         {loading ? (
           <div className="mas-loading-container">
@@ -192,6 +190,7 @@ export default function MasPage() {
         )}
         <div className="footer">Bách Hoá Xanh · Tra Cứu Code</div>
       </div>
+
       <div className={`copy-toast${showToast ? ' show' : ''}`}>✅ Đã sao chép mã số!</div>
       <MicPopup show={showMic} onClose={() => setShowMic(false)} onResult={handleMicResult} />
     </div>

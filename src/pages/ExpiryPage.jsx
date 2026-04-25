@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
+<<<<<<< HEAD
 // ⚠ Thay YOUR_SHEET_ID và YOUR_SHEET_GID nếu cần
 const SHEET_ID  = '1WirG9TEy80vTA-X2IrxfREHNS6IhW6Kd-Olt_Q4ikBw'
 const SHEET_GID = '0'
@@ -16,17 +17,37 @@ function parseSheet(raw) {
     qty:     r.c[3]?.v ?? '',
     note:    r.c[4]?.v ?? '',
   })).filter(r => r.name)
+=======
+// ⚠ Thay bằng URL publish CSV của Google Sheet Cận Date
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT9s_x0FnbDTy5ouSDYvQWqptLYwOOoi3exViww1SH6zklxF9a1Rg_lltsO1F3beY1Y9mHMPaJDAYrC/pub?output=csv"
+
+// Cột CSV: Tên sản phẩm | Code | Ngày hết hạn | Số lượng | Ghi chú
+function parseCSV(csvText) {
+  const rows = csvText.split('\n').slice(1)
+  return rows.map(row => {
+    const cols = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+    return {
+      name:   (cols[0]?.replace(/"/g, '').trim() || '').toUpperCase(),
+      code:   cols[1]?.replace(/"/g, '').trim() || '',
+      expiry: cols[2]?.replace(/"/g, '').trim() || '',
+      qty:    cols[3]?.replace(/"/g, '').trim() || '',
+      note:   cols[4]?.replace(/"/g, '').trim() || '',
+    }
+  }).filter(r => r.name)
+>>>>>>> c78a06c (feat: MasPage fetch CSV from Sheet, ExpiryPage dùng CSV thay gviz/tq)
 }
 
 function parseDate(val) {
   if (!val) return null
-  // Nếu là chuỗi dd/mm/yyyy
-  if (typeof val === 'string' && val.includes('/')) {
+  // dd/mm/yyyy
+  if (val.includes('/')) {
     const [d, m, y] = val.split('/').map(Number)
+    if (!d || !m || !y) return null
     return new Date(y, m - 1, d)
   }
-  // Nếu là Date string
-  return new Date(val)
+  // yyyy-mm-dd hoặc các dạng khác
+  const d = new Date(val)
+  return isNaN(d) ? null : d
 }
 
 function fmtDate(d) {
@@ -50,28 +71,40 @@ function getDiff(expDate) {
   return Math.round((expDate - today) / 86400000)
 }
 
+const STATUS_CFG = {
+  expired:  { label:'HẾT HẠN',    cls:'badge-expired',  icon:'🔴' },
+  critical: { label:'CẦN XỬ LÝ',  cls:'badge-critical', icon:'🟠' },
+  warn:     { label:'SẮP HẾT',    cls:'badge-warn',     icon:'🟡' },
+  ok:       { label:'CÒN HẠN',    cls:'badge-ok',       icon:'🟢' },
+  unknown:  { label:'KHÔNG RÕ',   cls:'badge-unknown',  icon:'⚪' },
+}
+
 export default function ExpiryPage() {
-  const [items,   setItems]   = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState(null)
-  const [filter,  setFilter]  = useState('all')   // all | critical | warn | expired
+  const [items,    setItems]    = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [error,    setError]    = useState(null)
+  const [filter,   setFilter]   = useState('all')
   const [lastSync, setLastSync] = useState(null)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(() => {
     setLoading(true)
     setError(null)
-    try {
-      const res  = await fetch(SHEET_URL + `&_=${Date.now()}`)
-      if (!res.ok) throw new Error('Không thể tải dữ liệu')
-      const text = await res.text()
-      const data = parseSheet(text)
-      setItems(data)
-      setLastSync(new Date())
-    } catch (e) {
-      setError(e.message || 'Lỗi kết nối Google Sheet')
-    } finally {
-      setLoading(false)
-    }
+
+    fetch(SHEET_CSV_URL + `&_=${Date.now()}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Không thể tải dữ liệu (HTTP ' + res.status + ')')
+        return res.text()
+      })
+      .then(csvText => {
+        setItems(parseCSV(csvText))
+        setLastSync(new Date())
+        setLoading(false)
+      })
+      .catch(err => {
+        console.error('Lỗi tải Expiry sheet:', err)
+        setError(err.message || 'Lỗi kết nối Google Sheet')
+        setLoading(false)
+      })
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
@@ -96,17 +129,9 @@ export default function ExpiryPage() {
     ? enriched
     : enriched.filter(i => i.status === filter)
 
-  const STATUS_CFG = {
-    expired:  { label:'HẾT HẠN',    cls:'badge-expired',  icon:'🔴' },
-    critical: { label:'CẦN XỬ LÝ',  cls:'badge-critical', icon:'🟠' },
-    warn:     { label:'SẮP HẾT',    cls:'badge-warn',     icon:'🟡' },
-    ok:       { label:'CÒN HẠN',    cls:'badge-ok',       icon:'🟢' },
-    unknown:  { label:'KHÔNG RÕ',   cls:'badge-unknown',  icon:'⚪' },
-  }
-
   return (
     <div className="expiry-page">
-      {/* Top summary + sync */}
+      {/* Filter chips + nút sync */}
       <div className="expiry-header-bar">
         <div className="expiry-summary-chips">
           {[
@@ -124,7 +149,12 @@ export default function ExpiryPage() {
             </button>
           ))}
         </div>
-        <button className={`expiry-sync-btn${loading ? ' spinning' : ''}`} onClick={fetchData} title="Đồng bộ lại">
+        <button
+          className={`expiry-sync-btn${loading ? ' spinning' : ''}`}
+          onClick={fetchData}
+          title="Đồng bộ lại"
+          disabled={loading}
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M1 4v6h6M23 20v-6h-6"/>
             <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 0 1 3.51 15"/>
@@ -136,8 +166,18 @@ export default function ExpiryPage() {
         <div className="expiry-lastsync">Đồng bộ lúc {lastSync.toLocaleTimeString('vi-VN')}</div>
       )}
 
-      {/* Error state */}
-      {error && (
+      {/* Loading */}
+      {loading && (
+        <div className="expiry-list">
+          <div className="mas-loading-container">
+            <div className="mas-spinner"></div>
+            <div className="mas-loading-text">Đang tải dữ liệu từ Google Sheets...</div>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {!loading && error && (
         <div className="expiry-error">
           <div className="expiry-error-icon">⚠️</div>
           <div className="expiry-error-msg">{error}</div>
@@ -145,19 +185,7 @@ export default function ExpiryPage() {
         </div>
       )}
 
-      {/* Loading skeleton */}
-      {loading && !error && (
-        <div className="expiry-list">
-          {[1,2,3,4].map(i => (
-            <div key={i} className="expiry-skeleton">
-              <div className="skel-line skel-name" />
-              <div className="skel-line skel-code" />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* List */}
+      {/* Danh sách */}
       {!loading && !error && (
         <div className="expiry-list">
           {filtered.length === 0 ? (
@@ -168,10 +196,10 @@ export default function ExpiryPage() {
             </div>
           ) : filtered.map((item, i) => {
             const cfg = STATUS_CFG[item.status]
-            const diffText = item.diff === null ? '?'
-              : item.diff < 0  ? `Hết hạn ${Math.abs(item.diff)} ngày trước`
-              : item.diff === 0 ? 'Hết hạn hôm nay'
-              : `Còn ${item.diff} ngày`
+            const diffText = item.diff === null    ? '?'
+              : item.diff < 0                      ? `Hết hạn ${Math.abs(item.diff)} ngày trước`
+              : item.diff === 0                    ? 'Hết hạn hôm nay'
+              :                                      `Còn ${item.diff} ngày`
 
             return (
               <div key={i} className={`expiry-item expiry-item-${item.status}`}>
